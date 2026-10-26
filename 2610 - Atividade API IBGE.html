@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estados e cidades com a API do IBGE</title>
+<style>
+  :root {
+    --fundo: #eef3f6;
+    --papel: #ffffff;
+    --tinta: #14232b;
+    --suave: #5b6b74;
+    --linha: #c9d5db;
+    --destaque: #320f8c;
+    --destaque-escuro: #2d0a6e;
+    --ok: #1e7a4c;
+    --erro: #b3361f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+    background: var(--fundo);
+    color: var(--tinta);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  main {
+    width: 100%;
+    max-width: 460px;
+    background: var(--papel);
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    padding: 32px 28px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 24px; color: var(--suave); }
+  label { display: block; margin: 16px 0 6px; font-weight: 600; font-size: 0.95rem; }
+  input, select {
+    width: 100%;
+    padding: 10px 12px;
+    font: inherit;
+    color: var(--tinta);
+    background: var(--papel);
+    border: 1px solid var(--linha);
+    border-radius: 6px;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 3px solid var(--destaque);
+    outline-offset: 1px;
+  }
+  select:disabled { background: #e6ecef; color: var(--suave); cursor: not-allowed; }
+  #info-cidades { min-height: 1.5em; margin: 8px 0 0; font-size: 0.9rem; color: var(--suave); }
+  #info-cidades.erro { color: var(--erro); }
+  button {
+    width: 100%;
+    margin-top: 24px;
+    padding: 12px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--destaque);
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--destaque-escuro); }
+  button:disabled { background: var(--suave); cursor: not-allowed; }
+  #resumo {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-left: 4px solid var(--ok);
+    background: #e8f4ed;
+    border-radius: 0 6px 6px 0;
+    font-weight: 600;
+  }
+  #resumo[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Inscrição no evento</h1>
+  <p class="sub">Preencha seus dados e escolha de onde você vem.</p>
+
+  <form id="form" novalidate>
+    <label for="nome">Nome</label>
+    <input type="text" id="nome" name="nome" autocomplete="name" required>
+
+    <label for="email">E-mail</label>
+    <input type="email" id="email" name="email" autocomplete="email" required>
+
+    <label for="estado">Estado</label>
+    <select id="estado" name="estado" required disabled>
+      <option value="">Carregando estados...</option>
+    </select>
+
+    <label for="cidade">Cidade</label>
+    <select id="cidade" name="cidade" required disabled>
+      <option value="">Escolha um estado primeiro</option>
+    </select>
+    <p id="info-cidades" aria-live="polite"></p>
+
+    <button type="submit">Inscrever</button>
+  </form>
+
+  <p id="resumo" role="status" hidden></p>
+</main>
+
+<script>
+  const URL_ESTADOS = "https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome";
+  const urlMunicipios = (uf) =>
+    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`;
+
+  const form = document.getElementById("form");
+  const selectEstado = document.getElementById("estado");
+  const selectCidade = document.getElementById("cidade");
+  const infoCidades = document.getElementById("info-cidades");
+  const resumo = document.getElementById("resumo");
+
+  function criarOption(texto, valor) {
+    const opt = document.createElement("option");
+    opt.textContent = texto;
+    opt.value = valor;
+    return opt;
+  }
+
+  function limparResumo() {
+    resumo.hidden = true;
+    resumo.textContent = "";
+  }
+
+  async function carregarEstados() {
+    try {
+      const resposta = await fetch(URL_ESTADOS);
+      if (!resposta.ok) throw new Error("HTTP " + resposta.status);
+      const estados = await resposta.json();
+
+      selectEstado.innerHTML = "";
+      selectEstado.appendChild(criarOption("Selecione o estado", ""));
+      estados.forEach((estado) => {
+        selectEstado.appendChild(criarOption(estado.nome, estado.sigla));
+      });
+      selectEstado.disabled = false;
+    } catch (erro) {
+      selectEstado.innerHTML = "";
+      selectEstado.appendChild(criarOption("Não foi possível carregar os estados", ""));
+      infoCidades.textContent = "Erro ao buscar os estados. Recarregue a página e tente de novo.";
+      infoCidades.className = "erro";
+    }
+  }
+
+  let ultimaBusca = 0;
+
+  selectEstado.addEventListener("change", async () => {
+    const uf = selectEstado.value;
+    const busca = ++ultimaBusca;
+    limparResumo();
+    infoCidades.textContent = "";
+    infoCidades.className = "";
+
+    if (!uf) {
+      selectCidade.innerHTML = "";
+      selectCidade.appendChild(criarOption("Escolha um estado primeiro", ""));
+      selectCidade.disabled = true;
+      return;
+    }
+
+    selectCidade.innerHTML = "";
+    selectCidade.appendChild(criarOption("Carregando...", ""));
+    selectCidade.disabled = true;
+
+    try {
+      const resposta = await fetch(urlMunicipios(uf));
+      if (!resposta.ok) throw new Error("HTTP " + resposta.status);
+      const cidades = await resposta.json();
+      if (busca !== ultimaBusca) return;
+
+      cidades.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      selectCidade.innerHTML = "";
+      selectCidade.appendChild(criarOption("Selecione a cidade", ""));
+      cidades.forEach((cidade) => {
+        selectCidade.appendChild(criarOption(cidade.nome, cidade.nome));
+      });
+      selectCidade.disabled = false;
+
+      const nomeEstado = selectEstado.options[selectEstado.selectedIndex].text;
+      infoCidades.textContent =
+        `${nomeEstado} tem ${cidades.length} ${cidades.length === 1 ? "cidade" : "cidades"}.`;
+    } catch (erro) {
+      if (busca !== ultimaBusca) return;
+      selectCidade.innerHTML = "";
+      selectCidade.appendChild(criarOption("Erro ao carregar cidades", ""));
+      infoCidades.textContent = "Não foi possível buscar as cidades. Escolha o estado novamente.";
+      infoCidades.className = "erro";
+    }
+  });
+
+  form.addEventListener("input", limparResumo);
+
+  form.addEventListener("submit", (evento) => {
+    evento.preventDefault();
+
+    const nome = document.getElementById("nome").value.trim();
+    const emailCampo = document.getElementById("email");
+    const uf = selectEstado.value;
+    const cidade = selectCidade.value;
+
+    if (!nome || !emailCampo.checkValidity() || !emailCampo.value.trim() || !uf || !cidade) {
+      resumo.hidden = false;
+      resumo.style.borderLeftColor = "var(--erro)";
+      resumo.style.background = "#fbebe8";
+      resumo.textContent = "Preencha nome, e-mail válido, estado e cidade para se inscrever.";
+      return;
+    }
+
+    resumo.style.borderLeftColor = "";
+    resumo.style.background = "";
+    resumo.hidden = false;
+    resumo.textContent = `${nome}, de ${cidade}/${uf}, inscrito com sucesso`;
+  });
+
+  carregarEstados();
+</script>
+</body>
+</html>
